@@ -14,7 +14,7 @@ const app = express();
  * - เปิด credentials (ให้ cookie วิ่งได้)
  * - รองรับ preflight ด้วย optionsSuccessStatus 200
  * ---------------------------------------------------------------- */
-const ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://mc-project-53qj.vercel.app'];
 app.use(cors({
   origin(origin, cb) {
     // อนุญาต client tools ที่ไม่มี Origin เช่น Postman หรือ curl
