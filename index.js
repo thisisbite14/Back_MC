@@ -2,8 +2,8 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const cors = require('cors');
-const MySQLStore = require('express-mysql-session')(session);
-const pool = require('./db');               // mysql2 createPool
+const pgSession = require('connect-pg-simple')(session);
+const pool = require('./db'); // pg Pool
 require('dotenv').config();
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -46,7 +46,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' })); // ✅ limit
  * ---------------------------------------------------------------- */
 // app.set('trust proxy', 1); // ✅ เปิดเมื่อมี proxy และจะใช้ cookie.secure:true
 
-const sessionStore = new MySQLStore({}, pool); // ใช้ mysql2 pool ได้ตรง ๆ
+const sessionStore = new pgSession({ pool, createTableIfMissing: false }); // ใช้ pg pool (Neon)
 app.use(session({
   name: 'mc.sid',
   secret: process.env.SESSION_SECRET || 'dev_secret_change_me',
