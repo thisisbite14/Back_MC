@@ -6,7 +6,11 @@ const MySQLStore = require('express-mysql-session')(session);
 const pool = require('./db');               // mysql2 createPool
 require('dotenv').config();
 
+const isProd = process.env.NODE_ENV === 'production';
+
 const app = express();
+
+if (isProd) app.set('trust proxy', 1); // เปิดเมื่อรันบน Vercel/behind proxy
 
 /** ----------------------------------------------------------------
  * CORS
@@ -52,8 +56,8 @@ app.use(session({
   cookie: {
     maxAge: 86400000,   // 1 วัน
     httpOnly: true,
-    sameSite: 'lax',
-    secure: false,      // ✅ เปิด true เมื่อใช้ HTTPS + trust proxy
+    sameSite: isProd ? 'none' : 'lax', // ถ้าเป็น production และข้ามโดเมนต้องใช้ 'none'
+    secure: isProd,      // เปิด true เมื่อเป็น production (HTTPS)
   },
 }));
 
@@ -117,7 +121,10 @@ app.use((err, req, res, next) => {
 /** ----------------------------------------------------------------
  * Start
  * ---------------------------------------------------------------- */
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, () => {
+//   console.log(`Server running on http://localhost:${PORT}`);
+// });
+
+// Export app for serverless wrapper (Vercel) or for a normal server to import
+module.exports = app;
