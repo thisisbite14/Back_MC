@@ -2,11 +2,15 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const cors = require('cors');
-const MySQLStore = require('express-mysql-session')(session);
-const pool = require('./db');               // mysql2 createPool
+// เอา pgSession ไว้ใน conditional แทน
+const pool = require('./db'); // pg Pool
 require('dotenv').config();
 
+const isProd = process.env.NODE_ENV === 'production';
+
 const app = express();
+
+if (isProd) app.set('trust proxy', 1); // เปิดเมื่อรันบน Vercel/behind proxy
 
 /** ----------------------------------------------------------------
  * CORS
@@ -35,6 +39,40 @@ app.use(cors({
 app.use(express.json({ limit: '2mb' }));             // ✅ limit
 app.use(express.urlencoded({ extended: true, limit: '2mb' })); // ✅ limit
 
+// Health endpoint (ตอบได้โดยไม่ต้องเชื่อม DB) - ช่วยให้ตรวจปัญหา timeout ได้ง่ายขึ้น
+app.get('/_health', (req, res) => {
+  return res.status(200).json({ status: 'ok' });
+});
+
+// Root endpoint - แสดงหน้าแรก
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>MC Backend API</title>
+      <style>body { font-family: Arial; margin: 40px; }</style>
+    </head>
+    <body>
+      <h1>🎵 MC Backend API</h1>
+      <p>Backend is running successfully!</p>
+      <h3>Available endpoints:</h3>
+      <ul>
+        <li><a href="/_health">/_health</a> - Health check</li>
+        <li><strong>/api/auth</strong> - Authentication routes</li>
+        <li><strong>/api/members</strong> - Members management</li>
+        <li><strong>/api/bands</strong> - Band management</li>
+        <li><strong>/api/schedules</strong> - Schedule management</li>
+        <li><strong>/api/finances</strong> - Finance management</li>
+        <li><strong>/api/projects</strong> - Project management</li>
+        <li><strong>/api/equipments</strong> - Equipment management</li>
+      </ul>
+      <p><small>Environment: ${process.env.NODE_ENV || 'development'}</small></p>
+    </body>
+    </html>
+  `);
+});
+
 /** ----------------------------------------------------------------
  * Session
  * - สำหรับ dev: secure:false, sameSite:lax เพียงพอ
@@ -42,20 +80,60 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' })); // ✅ limit
  * ---------------------------------------------------------------- */
 // app.set('trust proxy', 1); // ✅ เปิดเมื่อมี proxy และจะใช้ cookie.secure:true
 
-const sessionStore = new MySQLStore({}, pool); // ใช้ mysql2 pool ได้ตรง ๆ
-app.use(session({
-  name: 'mc.sid',
-  secret: process.env.SESSION_SECRET || 'dev_secret_change_me',
-  store: sessionStore,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    maxAge: 86400000,   // 1 วัน
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: false,      // ✅ เปิด true เมื่อใช้ HTTPS + trust proxy
-  },
-}));
+// Setup session - เช็คก่อนว่ามี DATABASE_URL หรือไม่
+console.log('[session] DATABASE_URL exists:', !!process.env.DATABASE_URL);
+
+if (process.env.DATABASE_URL && pool) {
+  try {
+    console.log('[session] Setting up PostgreSQL session store');
+    const pgSession = require('connect-pg-simple')(session);
+    const sessionStore = new pgSession({ pool, createTableIfMissing: false });
+    
+    app.use(session({
+      name: 'mc.sid',
+      secret: process.env.SESSION_SECRET || 'dev_secret_change_me',
+      store: sessionStore,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        maxAge: 86400000,   // 1 วัน
+        httpOnly: true,
+        sameSite: isProd ? 'none' : 'lax',
+        secure: isProd,
+      },
+    }));
+    console.log('[session] PostgreSQL session store ready');
+  } catch (err) {
+    console.error('[session] Failed to setup PostgreSQL session store:', err.message);
+    // Fallback to memory session
+    app.use(session({
+      name: 'mc.sid',
+      secret: process.env.SESSION_SECRET || 'dev_secret_change_me',
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        maxAge: 86400000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: false,
+      },
+    }));
+  }
+} else {
+  console.log('[session] Using memory session store (no DATABASE_URL or pool)');
+  app.use(session({
+    name: 'mc.sid',
+    secret: process.env.SESSION_SECRET || 'dev_secret_change_me',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 86400000,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: false,
+    },
+  }));
+}
 
 /** ----------------------------------------------------------------
  * Static uploads
@@ -117,7 +195,10 @@ app.use((err, req, res, next) => {
 /** ----------------------------------------------------------------
  * Start
  * ---------------------------------------------------------------- */
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, () => {
+//   console.log(`Server running on http://localhost:${PORT}`);
+// });
+
+// Export app for serverless wrapper (Vercel) or for a normal server to import
+module.exports = app;
