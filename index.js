@@ -3,29 +3,26 @@ const session = require('express-session');
 const path = require('path');
 const cors = require('cors');
 const MySQLStore = require('express-mysql-session')(session);
-const pool = require('./db');               // mysql2 createPool
+const pool = require('./db');
 require('dotenv').config();
 
 const app = express();
 
 /** ----------------------------------------------------------------
  * CORS
- * - เปิดสำหรับ http://localhost:5173 และ http://127.0.0.1:5173
- * - เปิด credentials (ให้ cookie วิ่งได้)
- * - รองรับ preflight ด้วย optionsSuccessStatus 200
  * ---------------------------------------------------------------- */
-const frontendURL = 'https://front-mc.vercel.app';
-const corsOptions = {
-  origin: frontendURL,
-  credentials: true // สำคัญมาก! สำหรับการใช้ session/cookie ข้ามโดเมน
-};
+// ดึง URL ของ Vercel มาจาก Environment Variable
+const frontendURL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-app.use(cors(corsOptions));
+// รายการ URL ที่อนุญาตทั้งหมด
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  frontendURL,
+];
 
-const ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 app.use(cors({
   origin(origin, cb) {
-    // อนุญาต client tools ที่ไม่มี Origin เช่น Postman หรือ curl
     if (!origin) return cb(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error('Not allowed by CORS'));
@@ -33,24 +30,23 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-access-token', 'x-auth-token'],
-  optionsSuccessStatus: 200, // ✅ IE/legacy
+  optionsSuccessStatus: 200,
 }));
+
 
 /** ----------------------------------------------------------------
  * Body parsers
- * - เพิ่ม limit เพื่อกัน json ใหญ่ ๆ
  * ---------------------------------------------------------------- */
-app.use(express.json({ limit: '2mb' }));             // ✅ limit
-app.use(express.urlencoded({ extended: true, limit: '2mb' })); // ✅ limit
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 /** ----------------------------------------------------------------
  * Session
- * - สำหรับ dev: secure:false, sameSite:lax เพียงพอ
- * - หากรันหลัง reverse proxy (Nginx) ค่อยเปิด trust proxy + secure:true
  * ---------------------------------------------------------------- */
-// app.set('trust proxy', 1); // ✅ เปิดเมื่อมี proxy และจะใช้ cookie.secure:true
+// ✅ เปิด trust proxy เพราะ Railway อยู่หลัง Proxy
+app.set('trust proxy', 1); 
 
-const sessionStore = new MySQLStore({}, pool); // ใช้ mysql2 pool ได้ตรง ๆ
+const sessionStore = new MySQLStore({}, pool);
 app.use(session({
   name: 'mc.sid',
   secret: process.env.SESSION_SECRET || 'dev_secret_change_me',
@@ -60,24 +56,22 @@ app.use(session({
   cookie: {
     maxAge: 86400000,   // 1 วัน
     httpOnly: true,
-    sameSite: 'lax',
-    secure: false,      // ✅ เปิด true เมื่อใช้ HTTPS + trust proxy
+    sameSite: 'none',  // 👈 แก้ไข
+    secure: true,      // 👈 แก้ไข
   },
 }));
 
 /** ----------------------------------------------------------------
  * Static uploads
- * - ใส่ Cache-Control เบา ๆ เพื่อลด revalidate
  * ---------------------------------------------------------------- */
 const uploadsPath = path.join(__dirname, 'uploads');
 app.use('/uploads', express.static(uploadsPath, {
-  maxAge: '1h',                       // ✅ ให้ cache ฝั่งเบราเซอร์เล็กน้อย
+  maxAge: '1h',
   etag: true,
 }));
 
 /** ----------------------------------------------------------------
  * Routes
- *  (ต้อง mount หลังจาก session)
  * ---------------------------------------------------------------- */
 const authRoutes        = require('./routes/auth');
 const memberRoutes      = require('./routes/members');
@@ -88,12 +82,11 @@ const financeRoutes     = require('./routes/finances');
 const projectRoutes     = require('./routes/projects');
 const equipmentsRoutes  = require('./routes/equipments');
 const permissionRoutes  = require('./routes/permissions');
-const siteRoutes        = require('./routes/site');   // ✅ /api/site/home ใช้ requireAdmin แล้ว
-const uploadRoutes      = require('./routes/upload'); // uploader
+const siteRoutes        = require('./routes/site');
+const uploadRoutes      = require('./routes/upload');
 
-// อัปโหลดควรวางก่อน 404
-app.use('/api/files',  uploadRoutes); // ✅ Documents.jsx ใช้เส้นนี้
-app.use('/api/upload', uploadRoutes); // ทางเก่า (สำรอง)
+app.use('/api/files',     uploadRoutes);
+app.use('/api/upload',    uploadRoutes);
 
 app.use('/api/site',        siteRoutes);
 app.use('/api/auth',        authRoutes);
@@ -114,7 +107,6 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  // แยก error ของ CORS ชัด ๆ (จะเจอเวลา origin ไม่อยู่ใน allow-list)
   if (err && err.message === 'Not allowed by CORS') {
     return res.status(403).json({ message: 'CORS forbidden: ' + (req.headers.origin || '') });
   }
