@@ -8,26 +8,51 @@ require('dotenv').config();
 
 const app = express();
 
-/** ----------------------------------------------------------------
- * CORS
- * ---------------------------------------------------------------- */
-// ดึง URL ของ Vercel มาจาก Environment Variable
-const frontendURL = process.env.FRONTEND_URL || 'http://localhost:5173';
+// ----------------------------------------------------------------
+//  การตั้งค่าสภาพแวดล้อม (Environment)
+// ----------------------------------------------------------------
+const isProduction = process.env.NODE_ENV === 'production';
+console.log(`Running in ${isProduction ? 'production' : 'development'} mode.`);
 
-// รายการ URL ที่อนุญาตทั้งหมด
-const ALLOWED_ORIGINS = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  frontendURL,
-];
+/** ----------------------------------------------------------------
+ * CORS (แก้ไขใหม่ให้ยืดหยุ่น)
+ * ---------------------------------------------------------------- */
+const frontendURL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
   origin(origin, cb) {
+    // อนุญาต request ที่ไม่มี origin (เช่น Postman หรือ Server-to-Server)
     if (!origin) return cb(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    return cb(new Error('Not allowed by CORS'));
+
+    // สร้างรายการที่อนุญาต (White List)
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      frontendURL,                    // แบบไม่มี / (จาก Env)
+      frontendURL + '/',              // แบบมี /  (เผื่อ Browser เติมมาให้)
+      'https://front-mc.vercel.app',  // Hardcode เผื่อไว้เลย
+      'https://front-mc.vercel.app/'  // Hardcode แบบมี / เผื่อไว้
+    ];
+
+    // เพิ่ม Vercel Preview URL (ถ้ามี)
+    if (isProduction && process.env.VERCEL_URL) {
+        allowedOrigins.push(`https://${process.env.VERCEL_URL}`);
+    }
+
+    // ตรวจสอบว่า Origin ที่เรียกมา มีอยู่ในรายการไหม
+    if (allowedOrigins.includes(origin)) {
+      return cb(null, true);
+    }
+
+    // (Optional) ยอมรับ Preview Deployments ทั้งหมดของ Vercel
+    // if (isProduction && origin.endsWith('.vercel.app')) {
+    //   return cb(null, true);
+    // }
+
+    console.error(`Blocked by CORS: ${origin}`); // Log ดูว่าใครโดนบล็อก
+    return cb(new Error(`Not allowed by CORS: ${origin}`));
   },
-  credentials: true,
+  credentials: true, // สำคัญมาก!
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-access-token', 'x-auth-token'],
   optionsSuccessStatus: 200,
@@ -43,8 +68,11 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 /** ----------------------------------------------------------------
  * Session
  * ---------------------------------------------------------------- */
-// ✅ เปิด trust proxy เพราะ Railway อยู่หลัง Proxy
-app.set('trust proxy', 1); 
+// ✅ เปิด trust proxy เมื่ออยู่ใน Production (เช่น Railway/Vercel)
+if (isProduction) {
+  app.set('trust proxy', 1); 
+  console.log("Trust Proxy is ENABLED (1)");
+}
 
 const sessionStore = new MySQLStore({}, pool);
 app.use(session({
@@ -56,8 +84,11 @@ app.use(session({
   cookie: {
     maxAge: 86400000,   // 1 วัน
     httpOnly: true,
-    sameSite: 'none',  // 👈 แก้ไข
-    secure: true,      // 👈 แก้ไข
+    // ✅ 
+    // [Production]   ใช้ 'none' และ 'true' เพื่อให้คุกกี้ทำงานข้ามโดเมน (cross-domain) บน HTTPS
+    // [Development]  ใช้ 'lax' และ 'false' เพื่อให้คุกกี้ทำงานบน HTTP localhost
+    sameSite: isProduction ? 'none' : 'lax', 
+    secure: isProduction,                   
   },
 }));
 
@@ -107,8 +138,9 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  if (err && err.message === 'Not allowed by CORS') {
-    return res.status(403).json({ message: 'CORS forbidden: ' + (req.headers.origin || '') });
+  if (err && err.message.startsWith('Not allowed by CORS')) {
+    console.error('CORS Error:', err.message);
+    return res.status(403).json({ message: 'CORS forbidden' });
   }
   console.error('Error:', err && (err.stack || err));
   res.status(500).json({ message: 'Internal Server Error' });
