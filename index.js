@@ -15,7 +15,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 console.log(`Running in ${isProduction ? 'production' : 'development'} mode.`);
 
 /** ----------------------------------------------------------------
- * CORS (แก้ไขใหม่: รวมเหลืออันเดียว และเพิ่ม URL ให้ครบ)
+ * CORS (อัปเดตชื่อเว็บใหม่)
  * ---------------------------------------------------------------- */
 const frontendURL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -28,10 +28,10 @@ app.use(cors({
     const allowedOrigins = [
       'http://localhost:5173',
       'http://127.0.0.1:5173',
-      frontendURL,                    // แบบไม่มี / (จาก Env)
-      frontendURL + '/',              // แบบมี /  (เผื่อ Browser เติมมาให้)
-      'https://front-mc.vercel.app',  // Hardcode เผื่อไว้เลย
-      'https://front-mc.vercel.app/'  // Hardcode แบบมี / เผื่อไว้
+      frontendURL,                          // แบบไม่มี / (อ่านจาก Railway Variable)
+      frontendURL + '/',                    // แบบมี /
+      'https://mc-project-53qj.vercel.app', // ✅ แก้เป็นชื่อใหม่ (Hardcode เผื่อไว้)
+      'https://mc-project-53qj.vercel.app/' // ✅ แก้เป็นชื่อใหม่แบบมี /
     ];
 
     // เพิ่ม Vercel Preview URL (ถ้ามี)
@@ -44,12 +44,7 @@ app.use(cors({
       return cb(null, true);
     }
 
-    // (Optional) ยอมรับ Preview Deployments ทั้งหมดของ Vercel
-    // if (isProduction && origin.endsWith('.vercel.app')) {
-    //   return cb(null, true);
-    // }
-
-    console.error(`Blocked by CORS: ${origin}`); // Log ดูว่าใครโดนบล็อก
+    console.error(`Blocked by CORS: ${origin}`);
     return cb(new Error(`Not allowed by CORS: ${origin}`));
   },
   credentials: true, // สำคัญมาก!
@@ -84,9 +79,6 @@ app.use(session({
   cookie: {
     maxAge: 86400000,   // 1 วัน
     httpOnly: true,
-    // ✅ 
-    // [Production]   ใช้ 'none' และ 'true' เพื่อให้คุกกี้ทำงานข้ามโดเมน (cross-domain) บน HTTPS
-    // [Development]  ใช้ 'lax' และ 'false' เพื่อให้คุกกี้ทำงานบน HTTP localhost
     sameSite: isProduction ? 'none' : 'lax', 
     secure: isProduction,                   
   },
@@ -131,7 +123,7 @@ app.use('/api/equipments',  equipmentsRoutes);
 app.use('/api/permissions', permissionRoutes);
 
 /** ----------------------------------------------------------------
- * Route หน้าแรก (Root) เพื่อเช็กสถานะ Server
+ * Route หน้าแรก
  * ---------------------------------------------------------------- */
 app.get('/', (req, res) => {
   res.send(`
