@@ -15,7 +15,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 console.log(`Running in ${isProduction ? 'production' : 'development'} mode.`);
 
 /** ----------------------------------------------------------------
- * CORS (แก้ไขใหม่ให้ยืดหยุ่น)
+ * CORS (แก้ไขใหม่: รวมเหลืออันเดียว และเพิ่ม URL ให้ครบ)
  * ---------------------------------------------------------------- */
 const frontendURL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -131,6 +131,16 @@ app.use('/api/equipments',  equipmentsRoutes);
 app.use('/api/permissions', permissionRoutes);
 
 /** ----------------------------------------------------------------
+ * Route หน้าแรก (Root) เพื่อเช็กสถานะ Server
+ * ---------------------------------------------------------------- */
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>✅ Backend API is running!</h1>
+    <p>Server is active. Please use the Frontend to access the application.</p>
+  `);
+});
+
+/** ----------------------------------------------------------------
  * 404 / 500
  * ---------------------------------------------------------------- */
 app.use((req, res) => {
@@ -138,7 +148,7 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  if (err && err.message.startsWith('Not allowed by CORS')) {
+  if (err && err.message && err.message.startsWith('Not allowed by CORS')) {
     console.error('CORS Error:', err.message);
     return res.status(403).json({ message: 'CORS forbidden' });
   }
